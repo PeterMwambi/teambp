@@ -51,7 +51,4 @@ class Register
         throw new Exception("Warning: Requested file was not found");
     }
 
-
-
-
 }

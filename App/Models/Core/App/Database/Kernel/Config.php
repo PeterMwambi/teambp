@@ -3,10 +3,8 @@
 namespace Models\Core\App\Database\Kernel;
 
 use Models\Core\App\Dependancies\Settings as MainSettings;
-use Exception;
 
-//Database Configuration settings;
-//Get Configuration Settings from JSON file
+
 class Config extends MainSettings
 {
 

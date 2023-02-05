@@ -61,7 +61,9 @@ class Session
 
     public static function Start()
     {
-        return session_start();
+        if (empty($_SESSION)) {
+            return session_start();
+        }
     }
 
     public static function End()

@@ -4,7 +4,6 @@ namespace Models\Core\Services\Ajax\Kernel;
 
 use Models\Core\App\Validation\Shell\Gateway as ValidationGateway;
 
-use Exception;
 
 class Request extends Security
 {

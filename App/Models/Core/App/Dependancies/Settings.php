@@ -2,7 +2,6 @@
 
 namespace Models\Core\App\Dependancies;
 
-use Models\Core\App\Utilities\Url;
 
 class Settings extends Loadjson
 {

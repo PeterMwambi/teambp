@@ -2,7 +2,7 @@
 
 namespace Models\Core\App\Database\Shell;
 
-define("ALLOW_DBQUERY_ACCESS", true);
+// define("ALLOW_DBQUERY_ACCESS", true);
 class Update extends Query
 {
 

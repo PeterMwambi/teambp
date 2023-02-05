@@ -8,6 +8,7 @@ use Models\Core\App\Cache\Storage;
 use Models\Core\App\Database\Shell\Insert;
 use Models\Core\App\Database\Shell\Query;
 use Models\Core\App\Database\Shell\Select;
+use Models\Core\App\Database\Shell\Update;
 use Models\Core\App\Helpers\Formatter;
 use Models\Core\App\Utilities\Session;
 
@@ -17,6 +18,8 @@ class Write
     private $_select;
 
     private $_insert;
+
+    private $_update;
 
     private $_test;
 
@@ -57,6 +60,10 @@ class Write
 
     private $_verifiedSecurityQuestion = array();
 
+    private $_authKey;
+
+
+    private $_preamble;
 
     public function WriteWhere(array |string $where)
     {
@@ -139,6 +146,21 @@ class Write
         $this->_securityQuestionFlag = $flag;
     }
 
+    private function _WriteUserId(string $userId)
+    {
+        $this->_userId = $userId;
+    }
+
+    private function _WritePreamble(string $preamble)
+    {
+        $this->_preamble = $preamble;
+    }
+
+    private function _WriteAuthKey(string $authKey)
+    {
+        $this->_authKey = $authKey;
+    }
+
     private function _GetRawQuestions()
     {
         if (count($this->_rawSecurityQuestions)) {
@@ -205,11 +227,36 @@ class Write
             throw new Exception("Warning: Data has not been initialized");
         }
     }
+
+
+    private function _GetPreamble()
+    {
+        if (!empty($this->_preamble)) {
+            return $this->_preamble;
+        } else {
+            throw new Exception("Warning; Preamble has not been defined");
+        }
+    }
+
+    /**
+     * Summary of _GetAuthKey
+     * @throws Exception
+     * @return string
+     */
+    private function _GetAuthKey()
+    {
+        if (!empty($this->_authKey)) {
+            return $this->_authKey;
+        } else {
+            throw new Exception("Warning; AuthKey has not been defined");
+        }
+    }
     public function __construct()
     {
         $this->_select = new Select;
         $this->_query = new Query;
         $this->_insert = new Insert;
+        $this->_update = new Update;
     }
 
 
@@ -308,6 +355,81 @@ class Write
 
 
 
+    public function ProcessMemberLogin()
+    {
+        $this->_WriteFormDataEntry(Storage::GetCachedData());
+        $this->_UpdateUserActivity();
+        return true;
+    }
+
+
+
+    private function _GetLoginData()
+    {
+        $data = $this->_GetDataByForm("login-form-step-1");
+        return $data;
+    }
+    private function _GenerateAuthInfo()
+    {
+        $data = $this->_GetLoginData();
+        if (!empty($data["username"])) {
+            $this->_WritePreamble($data["username"]);
+            $this->_WriteUserId($this->_GetUserIdFromUsername());
+        } else {
+            if (!empty($data["email"])) {
+                $this->_WritePreamble($data["email"]);
+                $this->_WriteUserId($this->_GetUserIdFromEmail());
+            }
+        }
+        $this->_WriteAuthKey(Hashing::Encrypt($this->_GetPreamble() . $data["password"]));
+    }
+
+
+    private function _UpdateUserActivity()
+    {
+
+        $this->_GenerateAuthInfo();
+        $lastSignedIn = $this->_GenerateDateAsJSON();
+        $AuthKey = $this->_GetAuthKey();
+        $status = "Logged In";
+        $this->_update->Table("mb_accountinfo");
+        $this->_update->Set(array("LastSignedIn" => $lastSignedIn, "AuthKey" => $AuthKey, "Status" => $status));
+        $this->_update->Where(array("UserId" => $this->_GetUserId()));
+        $this->_update->Execute();
+        return true;
+    }
+
+
+
+    private function _GetUserIdFromEmail()
+    {
+        $this->_select->Table("mb_contactinfo");
+        $this->_select->Fields(array("UserId"));
+        $this->_select->Fetch(0);
+        $this->_select->Where(array("Email", "=", $this->_GetLoginData()["email"]));
+        $this->_select->Execute();
+        if ($this->_select->GetCount()) {
+            return $this->_select->GetResultsAsObject()->UserId;
+        } else {
+            throw new Exception("Warning: User Id was not found");
+        }
+    }
+
+
+    private function _GetUserIdFromUsername()
+    {
+        $this->_select->Table("mb_accountinfo");
+        $this->_select->Fields(array("UserId"));
+        $this->_select->Fetch(0);
+        $this->_select->Where(array("Username", "=", $this->_GetLoginData()["username"]));
+        $this->_select->Execute();
+        if ($this->_select->GetCount()) {
+            return $this->_select->GetResultsAsObject()->UserId;
+        } else {
+            throw new Exception("Warning: User Id was not found");
+        }
+    }
+
     public function ValidateSecurityQuestion1()
     {
         $this->_WriteSecurityQuestionData($this->_GetData());
@@ -395,10 +517,7 @@ class Write
 
     private function _VerifyCachedLoginData()
     {
-
-        if (!isset($_SESSION)) {
-            Session::Start();
-        }
+        Session::Start();
         if (!empty(Storage::GetCachedData())) {
             return true;
         } else {
@@ -553,13 +672,7 @@ class Write
         }
     }
 
-    public function ProcessMemberLogin()
-    {
-        echo "<pre>";
-        print_r(Storage::GetCachedData());
-        echo "</pre>";
-        die;
-    }
+
 
     private function _ValidateData()
     {
@@ -760,6 +873,15 @@ class Write
 
     public function RegisterMemberToDB()
     {
+        if ($this->_RegisterMemberToDB()) {
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    private function _RegisterMemberToDB()
+    {
         $this->_WriteFormDataEntry();
         $this->_GenerateUserId();
         $this->_RegisterDataFromStep1();
@@ -844,6 +966,7 @@ class Write
     {
         $data = $this->_GetDataByForm("registration-form-step-4");
         $data["password"] = password_hash($data["password"], PASSWORD_DEFAULT);
+        $AuthKey = Hashing::Encrypt($data["username"] . $data["password"]);
         $data = array(
             "Username" => $data["username"],
             "Password" => $data["password"],
@@ -853,12 +976,16 @@ class Write
             array(
                 "UserId" => $this->_GetUserId(),
                 "DateCreated" => $this->_GenerateDateAsJSON(),
-                "LastSignedIn" => $this->_GenerateDateAsJSON()
+                "LastSignedIn" => $this->_GenerateDateAsJSON(),
+                "LastSignedOut" => json_encode(array()),
+                "Status" => "Logged In",
+                "AuthKey" => $AuthKey
             )
         );
         $this->WriteTable("mb_accountinfo");
-        $this->_RegisterData($data, "UserId", "DateCreated", "LastSignedIn");
+        $this->_RegisterData($data, "UserId", "DateCreated", "LastSignedIn", "LastSignedOut", "AuthKey", "Status");
     }
+
 
 
     private function _RegisterDataFromStep5()
